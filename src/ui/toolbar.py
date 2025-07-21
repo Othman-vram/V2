@@ -16,7 +16,7 @@ class ToolbarWidget(QWidget):
     reset_requested = pyqtSignal()
     delete_requested = pyqtSignal()
     selection_tool_toggled = pyqtSignal(bool)  # active state
-    group_transform_requested = pyqtSignal(str, object)  # transform_type, value
+    transform_requested = pyqtSignal(str, object)  # transform_type, value
     
     def __init__(self):
         super().__init__()
@@ -42,23 +42,26 @@ class ToolbarWidget(QWidget):
         self.selection_btn.clicked.connect(self.toggle_selection_tool)
         layout.addWidget(self.selection_btn)
         
+        # Transform buttons (work for both single and group)
+        self.rotate_cw_btn = QPushButton("↻ 90°")
+        self.rotate_cw_btn.setToolTip("Rotate selection clockwise")
+        self.rotate_cw_btn.clicked.connect(lambda: self.transform_requested.emit('rotate_cw', None))
+        layout.addWidget(self.rotate_cw_btn)
+        
+        self.rotate_ccw_btn = QPushButton("↺ 90°")
+        self.rotate_ccw_btn.setToolTip("Rotate selection counter-clockwise")
+        self.rotate_ccw_btn.clicked.connect(lambda: self.transform_requested.emit('rotate_ccw', None))
+        layout.addWidget(self.rotate_ccw_btn)
+        
+        self.flip_h_btn = QPushButton("↔")
+        self.flip_h_btn.setToolTip("Flip selection horizontally")
+        self.flip_h_btn.clicked.connect(lambda: self.transform_requested.emit('flip_horizontal', None))
+        layout.addWidget(self.flip_h_btn)
+        
         # Separator
         separator1 = QFrame()
         separator1.setFrameShape(QFrame.Shape.VLine)
         layout.addWidget(separator1)
-        
-        # Group transform buttons (initially hidden)
-        self.group_rotate_cw_btn = QPushButton("↻ Group")
-        self.group_rotate_cw_btn.setToolTip("Rotate selected group clockwise")
-        self.group_rotate_cw_btn.clicked.connect(lambda: self.group_transform_requested.emit('rotate_cw', None))
-        self.group_rotate_cw_btn.setVisible(False)
-        layout.addWidget(self.group_rotate_cw_btn)
-        
-        self.group_rotate_ccw_btn = QPushButton("↺ Group")
-        self.group_rotate_ccw_btn.setToolTip("Rotate selected group counter-clockwise")
-        self.group_rotate_ccw_btn.clicked.connect(lambda: self.group_transform_requested.emit('rotate_ccw', None))
-        self.group_rotate_ccw_btn.setVisible(False)
-        layout.addWidget(self.group_rotate_ccw_btn)
         
         # Export button
         self.export_btn = QPushButton("💾 Export")
@@ -107,10 +110,6 @@ class ToolbarWidget(QWidget):
         """Toggle selection tool state"""
         self.selection_tool_active = not self.selection_tool_active
         self.selection_btn.setChecked(self.selection_tool_active)
-        
-        # Show/hide group transform buttons
-        self.group_rotate_cw_btn.setVisible(self.selection_tool_active)
-        self.group_rotate_ccw_btn.setVisible(self.selection_tool_active)
         
         # Update button style
         if self.selection_tool_active:

@@ -110,7 +110,7 @@ class CanvasWidget(QWidget):
         
         # Selection tool
         self.selection_tool = SelectionTool()
-        self.group_selected_fragments: Set[str] = set()
+        self.group_selected_fragments = set()
         self.is_group_dragging = False
         self.group_drag_start = QPoint()
         self.group_drag_offsets: Dict[str, QPoint] = {}
@@ -487,7 +487,8 @@ class CanvasWidget(QWidget):
                     else:
                         # Select and start dragging single fragment
                         self.fragment_selected.emit(clicked_fragment.id)
-                        self.group_selected_fragments.clear()  # Clear group selection
+                        if not self.selection_tool.is_active:
+                            self.group_selected_fragments.clear()  # Clear group selection only if not in selection mode
                         self.is_dragging_fragment = True
                         self.dragged_fragment_id = clicked_fragment.id
                         self.drag_offset = QPoint(
@@ -496,7 +497,8 @@ class CanvasWidget(QWidget):
                         )
                 else:
                     # Clear selections and start panning
-                    self.group_selected_fragments.clear()
+                    if not self.selection_tool.is_active:
+                        self.group_selected_fragments.clear()
                     self.is_panning = True
                 
         elif event.button() == Qt.MouseButton.MiddleButton:
@@ -555,6 +557,9 @@ class CanvasWidget(QWidget):
             # Auto-zoom to fit selected fragments if any
             if selected_ids:
                 self.zoom_to_selected_fragments()
+            
+            # Emit signal to update UI
+            self.fragment_selected.emit('group_selection')
             
             self.force_immediate_update()
             return
@@ -726,14 +731,14 @@ class CanvasWidget(QWidget):
         self.clear_cache()
         self.force_immediate_update()
         
-    def apply_group_transform(self, transform_type: str, value=None):
+    def apply_transform_to_selection(self, transform_type: str, value=None):
         """Apply transformation to all selected fragments"""
         selected_ids = self.get_selected_fragments()
         if not selected_ids:
             return
             
-        # Calculate center of selected fragments for rotation
-        if transform_type in ['rotate_cw', 'rotate_ccw', 'rotate_angle']:
+        # For group operations, calculate center point
+        if len(selected_ids) > 1 and transform_type in ['rotate_cw', 'rotate_ccw', 'rotate_angle']:
             center_x = center_y = 0
             count = 0
             
@@ -771,11 +776,13 @@ class CanvasWidget(QWidget):
                             new_y = center_y + new_rel_y
                             
                             self.fragment_moved.emit(frag_id, new_x, new_y)
-                            
-        # Emit transform for individual fragments
-        for frag_id in selected_ids:
-            if transform_type not in ['rotate_cw', 'rotate_ccw', 'rotate_angle']:
-                # For non-rotation transforms, apply to each fragment individually
-                pass  # Will be handled by the main window
+        
+        # For all other transforms or single selection, emit to main window
+        if len(selected_ids) == 1 or transform_type not in ['rotate_cw', 'rotate_ccw', 'rotate_angle']:
+            # Single fragment or non-rotation group operation
+            for frag_id in selected_ids:
+                # Emit transform signal for main window to handle
+                from PyQt6.QtCore import QTimer
+                QTimer.singleShot(0, lambda fid=frag_id: self.fragment_selected.emit(fid))
                 
         self.force_immediate_update()

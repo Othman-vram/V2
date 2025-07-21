@@ -93,7 +93,7 @@ class MainWindow(QMainWindow):
         self.toolbar.reset_requested.connect(self.reset_fragments)
         self.toolbar.delete_requested.connect(self.delete_selected_fragment)
         self.toolbar.selection_tool_toggled.connect(self.toggle_selection_tool)
-        self.toolbar.group_transform_requested.connect(self.apply_group_transform)
+        self.toolbar.transform_requested.connect(self.apply_toolbar_transform)
         
         # Fragment list connections
         self.fragment_list.fragment_selected.connect(self.select_fragment)
@@ -107,6 +107,7 @@ class MainWindow(QMainWindow):
         # Canvas connections
         self.canvas_widget.fragment_selected.connect(self.select_fragment)
         self.canvas_widget.fragment_moved.connect(self.update_fragment_position)
+        self.canvas_widget.fragment_selected.connect(self.on_canvas_selection_changed)
         
         # Fragment manager connections
         self.fragment_manager.fragments_changed.connect(self.update_ui)
@@ -295,9 +296,37 @@ class MainWindow(QMainWindow):
         """Toggle selection tool in canvas"""
         self.canvas_widget.set_selection_tool_active(active)
         
-    def apply_group_transform(self, transform_type: str, value=None):
-        """Apply transformation to selected group"""
-        self.canvas_widget.apply_group_transform(transform_type, value)
+    def apply_toolbar_transform(self, transform_type: str, value=None):
+        """Apply transformation from toolbar to current selection"""
+        selected_fragments = self.canvas_widget.get_selected_fragments()
+        
+        if not selected_fragments:
+            # No selection, try to use currently selected fragment
+            selected_id = self.fragment_manager.get_selected_fragment_id()
+            if selected_id:
+                selected_fragments = {selected_id}
+        
+        if not selected_fragments:
+            return
+            
+        # Apply transform to canvas selection (handles both single and group)
+        self.canvas_widget.apply_transform_to_selection(transform_type, value)
+        
+        # Also apply to individual fragments for non-rotation transforms
+        if transform_type not in ['rotate_cw', 'rotate_ccw', 'rotate_angle'] or len(selected_fragments) == 1:
+            for fragment_id in selected_fragments:
+                self.apply_transform(fragment_id, transform_type, value)
+                
+    def on_canvas_selection_changed(self, selection_info: str):
+        """Handle canvas selection changes"""
+        if selection_info == 'group_selection':
+            # Group selection made, update UI to show group is selected
+            selected_count = len(self.canvas_widget.get_selected_fragments())
+            if selected_count > 1:
+                self.toolbar.set_status(f"{selected_count} fragments selected")
+        else:
+            # Single fragment selection
+            self.select_fragment(selection_info)
         
     def apply_transform(self, fragment_id: str, transform_type: str, value=None):
         """Apply transformation to fragment"""

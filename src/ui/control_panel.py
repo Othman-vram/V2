@@ -36,7 +36,8 @@ class ControlPanel(QWidget):
         # Transform group
         self.transform_group = QGroupBox("Transformations")
         self.setup_transform_group()
-        layout.addWidget(self.transform_group)
+        # Hide transform group since transforms are now in toolbar
+        # layout.addWidget(self.transform_group)
         
         # Position group
         self.position_group = QGroupBox("Position")
@@ -226,7 +227,7 @@ class ControlPanel(QWidget):
         has_fragment = self.current_fragment is not None
         
         # Enable/disable controls
-        self.transform_group.setEnabled(has_fragment)
+        # self.transform_group.setEnabled(has_fragment)  # Commented out since hidden
         self.position_group.setEnabled(has_fragment)
         self.display_group.setEnabled(has_fragment)
         
@@ -267,7 +268,7 @@ class ControlPanel(QWidget):
         self.opacity_slider.blockSignals(False)
         
         # Update transform button states
-        self.update_transform_button_states()
+        # self.update_transform_button_states()  # Commented out since hidden
         
     def update_transform_button_states(self):
         """Update the visual state of transform buttons"""
