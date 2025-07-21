@@ -36,8 +36,7 @@ class ControlPanel(QWidget):
         # Transform group
         self.transform_group = QGroupBox("Transformations")
         self.setup_transform_group()
-        # Hide transform group since transforms are now in toolbar
-        # layout.addWidget(self.transform_group)
+        layout.addWidget(self.transform_group)
         
         # Position group
         self.position_group = QGroupBox("Position")

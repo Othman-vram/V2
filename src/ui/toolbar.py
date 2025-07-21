@@ -43,26 +43,6 @@ class ToolbarWidget(QWidget):
         layout.addWidget(self.selection_btn)
         
         # Transform buttons (work for both single and group)
-        self.rotate_cw_btn = QPushButton("↻ 90°")
-        self.rotate_cw_btn.setToolTip("Rotate selection clockwise")
-        self.rotate_cw_btn.clicked.connect(lambda: self.transform_requested.emit('rotate_cw', None))
-        layout.addWidget(self.rotate_cw_btn)
-        
-        self.rotate_ccw_btn = QPushButton("↺ 90°")
-        self.rotate_ccw_btn.setToolTip("Rotate selection counter-clockwise")
-        self.rotate_ccw_btn.clicked.connect(lambda: self.transform_requested.emit('rotate_ccw', None))
-        layout.addWidget(self.rotate_ccw_btn)
-        
-        self.flip_h_btn = QPushButton("↔")
-        self.flip_h_btn.setToolTip("Flip selection horizontally")
-        self.flip_h_btn.clicked.connect(lambda: self.transform_requested.emit('flip_horizontal', None))
-        layout.addWidget(self.flip_h_btn)
-        
-        # Separator
-        separator1 = QFrame()
-        separator1.setFrameShape(QFrame.Shape.VLine)
-        layout.addWidget(separator1)
-        
         # Export button
         self.export_btn = QPushButton("💾 Export")
         self.export_btn.setToolTip("Export composite image and metadata")

@@ -737,52 +737,18 @@ class CanvasWidget(QWidget):
         if not selected_ids:
             return
             
-        # For group operations, calculate center point
-        if len(selected_ids) > 1 and transform_type in ['rotate_cw', 'rotate_ccw', 'rotate_angle']:
-            center_x = center_y = 0
-            count = 0
-            
+        # For group rotation, rotate each fragment individually (they stay in same relative positions)
+        if len(selected_ids) > 1 and transform_type in ['rotate_cw', 'rotate_ccw']:
+            # Just rotate each fragment in place - they maintain relative positions
             for frag_id in selected_ids:
-                fragment = self.get_fragment_by_id(frag_id)
-                if fragment:
-                    bbox = fragment.get_bounding_box()
-                    center_x += bbox[0] + bbox[2] / 2
-                    center_y += bbox[1] + bbox[3] / 2
-                    count += 1
-                    
-            if count > 0:
-                center_x /= count
-                center_y /= count
-                
-                # Apply rotation around center
-                angle = 90 if transform_type == 'rotate_cw' else -90 if transform_type == 'rotate_ccw' else value
-                if angle:
-                    import math
-                    angle_rad = math.radians(angle)
-                    cos_a = math.cos(angle_rad)
-                    sin_a = math.sin(angle_rad)
-                    
-                    for frag_id in selected_ids:
-                        fragment = self.get_fragment_by_id(frag_id)
-                        if fragment:
-                            # Rotate fragment around group center
-                            rel_x = fragment.x - center_x
-                            rel_y = fragment.y - center_y
-                            
-                            new_rel_x = rel_x * cos_a - rel_y * sin_a
-                            new_rel_y = rel_x * sin_a + rel_y * cos_a
-                            
-                            new_x = center_x + new_rel_x
-                            new_y = center_y + new_rel_y
-                            
-                            self.fragment_moved.emit(frag_id, new_x, new_y)
-        
-        # For all other transforms or single selection, emit to main window
-        if len(selected_ids) == 1 or transform_type not in ['rotate_cw', 'rotate_ccw', 'rotate_angle']:
-            # Single fragment or non-rotation group operation
-            for frag_id in selected_ids:
-                # Emit transform signal for main window to handle
-                from PyQt6.QtCore import QTimer
-                QTimer.singleShot(0, lambda fid=frag_id: self.fragment_selected.emit(fid))
+                if transform_type == 'rotate_cw':
+                    self.fragment_selected.emit(f"group_rotate_cw:{frag_id}")
+                elif transform_type == 'rotate_ccw':
+                    self.fragment_selected.emit(f"group_rotate_ccw:{frag_id}")
+        else:
+            # Single fragment or other operations
+            if len(selected_ids) == 1:
+                frag_id = list(selected_ids)[0]
+                self.fragment_selected.emit(frag_id)
                 
         self.force_immediate_update()
