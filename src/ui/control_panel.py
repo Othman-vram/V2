@@ -155,29 +155,39 @@ class ControlPanel(QWidget):
         # Translation buttons
         translation_layout = QGridLayout()
         
+        # Step size control
+        step_layout = QHBoxLayout()
+        step_layout.addWidget(QLabel("Step:"))
+        self.step_spinbox = QSpinBox()
+        self.step_spinbox.setRange(1, 1000)
+        self.step_spinbox.setValue(10)
+        self.step_spinbox.setSuffix(" px")
+        step_layout.addWidget(self.step_spinbox)
+        translation_layout.addLayout(step_layout, 0, 0, 1, 3)
+        
         # Up
         up_btn = QPushButton("↑")
-        up_btn.clicked.connect(lambda: self.request_transform('translate', (0, -10)))
-        translation_layout.addWidget(up_btn, 0, 1)
+        up_btn.clicked.connect(lambda: self.request_transform('translate', (0, -self.step_spinbox.value())))
+        translation_layout.addWidget(up_btn, 1, 1)
         
         # Left, Center, Right
         left_btn = QPushButton("←")
-        left_btn.clicked.connect(lambda: self.request_transform('translate', (-10, 0)))
-        translation_layout.addWidget(left_btn, 1, 0)
+        left_btn.clicked.connect(lambda: self.request_transform('translate', (-self.step_spinbox.value(), 0)))
+        translation_layout.addWidget(left_btn, 2, 0)
         
         center_btn = QPushButton("⌂")
         center_btn.setToolTip("Center fragment")
         center_btn.clicked.connect(lambda: self.request_transform('translate', (0, 0)))
-        translation_layout.addWidget(center_btn, 1, 1)
+        translation_layout.addWidget(center_btn, 2, 1)
         
         right_btn = QPushButton("→")
-        right_btn.clicked.connect(lambda: self.request_transform('translate', (10, 0)))
-        translation_layout.addWidget(right_btn, 1, 2)
+        right_btn.clicked.connect(lambda: self.request_transform('translate', (self.step_spinbox.value(), 0)))
+        translation_layout.addWidget(right_btn, 2, 2)
         
         # Down
         down_btn = QPushButton("↓")
-        down_btn.clicked.connect(lambda: self.request_transform('translate', (0, 10)))
-        translation_layout.addWidget(down_btn, 2, 1)
+        down_btn.clicked.connect(lambda: self.request_transform('translate', (0, self.step_spinbox.value())))
+        translation_layout.addWidget(down_btn, 3, 1)
         
         layout.addLayout(translation_layout, 2, 0, 1, 2)
         
@@ -307,6 +317,8 @@ class ControlPanel(QWidget):
             opacity = value / 100.0
             self.current_fragment.opacity = opacity
             self.opacity_label.setText(f"{value}%")
+            # Force immediate update
+            self.transform_requested.emit(self.current_fragment.id, 'force_update', None)
             
     def on_angle_changed(self):
         """Handle angle spinbox changes"""

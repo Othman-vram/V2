@@ -93,6 +93,9 @@ class FragmentListItem(QWidget):
         visible = state == Qt.CheckState.Checked.value
         self.visibility_changed.emit(self.fragment.id, visible)
         
+        # Force immediate visual update
+        self.update()
+        
     def on_delete_clicked(self):
         """Handle delete button click"""
         self.delete_requested.emit(self.fragment.id)
@@ -255,8 +258,14 @@ class FragmentListWidget(QWidget):
         for fragment in self.fragments:
             self.fragment_visibility_changed.emit(fragment.id, False)
             
+        # Force immediate update
+        self.update()
+            
     def update_fragment_info(self, fragment: Fragment):
         """Update information for a specific fragment"""
         if fragment.id in self.fragment_items:
             _, widget = self.fragment_items[fragment.id]
             widget.update_fragment_info(fragment)
+            
+        # Force immediate update
+        self.update()

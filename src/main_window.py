@@ -92,6 +92,8 @@ class MainWindow(QMainWindow):
         self.toolbar.stitch_requested.connect(self.perform_stitching)
         self.toolbar.reset_requested.connect(self.reset_fragments)
         self.toolbar.delete_requested.connect(self.delete_selected_fragment)
+        self.toolbar.selection_tool_toggled.connect(self.toggle_selection_tool)
+        self.toolbar.group_transform_requested.connect(self.apply_group_transform)
         
         # Fragment list connections
         self.fragment_list.fragment_selected.connect(self.select_fragment)
@@ -109,6 +111,11 @@ class MainWindow(QMainWindow):
         # Fragment manager connections
         self.fragment_manager.fragments_changed.connect(self.update_ui)
         self.fragment_manager.fragments_changed.connect(self.on_fragments_changed)
+        self.fragment_manager.fragments_changed.connect(self.force_canvas_update)
+        
+    def force_canvas_update(self):
+        """Force immediate canvas update"""
+        self.canvas_widget.force_immediate_update()
         
     def on_fragments_changed(self):
         """Handle fragment changes and update canvas efficiently"""
@@ -122,6 +129,9 @@ class MainWindow(QMainWindow):
         # Update toolbar with fragment count
         fragment_count = len(self.fragment_manager.get_all_fragments())
         self.toolbar.set_fragment_count(fragment_count)
+        
+        # Force immediate canvas update
+        self.canvas_widget.force_immediate_update()
         
     def setup_menu_bar(self):
         """Setup the menu bar"""
@@ -281,6 +291,14 @@ class MainWindow(QMainWindow):
         if selected_id:
             self.delete_fragment(selected_id)
         
+    def toggle_selection_tool(self, active: bool):
+        """Toggle selection tool in canvas"""
+        self.canvas_widget.set_selection_tool_active(active)
+        
+    def apply_group_transform(self, transform_type: str, value=None):
+        """Apply transformation to selected group"""
+        self.canvas_widget.apply_group_transform(transform_type, value)
+        
     def apply_transform(self, fragment_id: str, transform_type: str, value=None):
         """Apply transformation to fragment"""
         fragment = self.fragment_manager.get_fragment(fragment_id)
@@ -304,10 +322,17 @@ class MainWindow(QMainWindow):
             self.fragment_manager.translate_fragment(fragment_id, dx, dy)
         elif transform_type == 'set_visibility':
             self.fragment_manager.set_fragment_visibility(fragment_id, value)
+        elif transform_type == 'force_update':
+            # Force immediate update for opacity changes
+            self.canvas_widget.force_immediate_update()
+            
+        # Always force immediate update after any transform
+        self.canvas_widget.force_immediate_update()
             
     def reset_fragment_transform(self, fragment_id: str):
         """Reset fragment transformation"""
         self.fragment_manager.reset_fragment_transform(fragment_id)
+        self.canvas_widget.force_immediate_update()
         
     def update_fragment_position(self, fragment_id: str, x: float, y: float):
         """Update fragment position from canvas interaction"""
@@ -321,6 +346,7 @@ class MainWindow(QMainWindow):
             print(f"Updating fragment {fragment.name} position: ({fragment.x}, {fragment.y}) -> ({x}, {y})")
         
         self.fragment_manager.set_fragment_position(fragment_id, x, y)
+        self.canvas_widget.force_immediate_update()
         
     def perform_stitching(self):
         """Perform rigid stitching refinement"""
@@ -376,6 +402,7 @@ class MainWindow(QMainWindow):
         
         if reply == QMessageBox.StandardButton.Yes:
             self.fragment_manager.reset_all_transforms()
+            self.canvas_widget.force_immediate_update()
             
     def export_results(self):
         """Export both image and metadata"""
@@ -429,6 +456,9 @@ class MainWindow(QMainWindow):
         
         # Update status bar
         self.fragment_count_label.setText(f"Fragments: {len(fragments)}")
+        
+        # Force immediate canvas update
+        self.canvas_widget.force_immediate_update()
         
         # Update control panel if fragment is selected
         selected_id = self.fragment_manager.get_selected_fragment_id()

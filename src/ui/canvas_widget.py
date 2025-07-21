@@ -12,6 +12,8 @@ from PyQt6.QtOpenGLWidgets import QOpenGLWidget
 from PyQt6.QtCore import QPointF
 import cv2
 
+from .selection_tool import SelectionTool
+
 from ..core.fragment import Fragment
 
 class FragmentRenderer(QObject):
@@ -106,6 +108,13 @@ class CanvasWidget(QWidget):
         self.dragged_fragment_id: Optional[str] = None
         self.drag_offset = QPoint()
         
+        # Selection tool
+        self.selection_tool = SelectionTool()
+        self.group_selected_fragments: Set[str] = set()
+        self.is_group_dragging = False
+        self.group_drag_start = QPoint()
+        self.group_drag_offsets: Dict[str, QPoint] = {}
+        
         # Fragment rendering cache
         self.fragment_pixmaps: Dict[str, QPixmap] = {}
         self.fragment_zoom_cache: Dict[str, float] = {}
@@ -133,6 +142,11 @@ class CanvasWidget(QWidget):
         # Background renderer
         self.renderer = FragmentRenderer()
         self.renderer.rendering_finished.connect(self.on_fragment_rendered)
+        
+        # Force update timer for immediate UI updates
+        self.force_update_timer = QTimer()
+        self.force_update_timer.setSingleShot(True)
+        self.force_update_timer.timeout.connect(self.force_update_display)
         
         # Setup
         self.setMinimumSize(400, 300)
@@ -202,7 +216,32 @@ class CanvasWidget(QWidget):
         """Set the selected fragment"""
         if self.selected_fragment_id != fragment_id:
             self.selected_fragment_id = fragment_id
-            self.update()  # Just update display, no re-rendering needed
+            self.force_immediate_update()
+            
+    def set_selection_tool_active(self, active: bool):
+        """Set selection tool active state"""
+        self.selection_tool.is_active = active
+        if not active:
+            self.selection_tool.clear_selection()
+            self.group_selected_fragments.clear()
+        self.force_immediate_update()
+        
+    def get_selected_fragments(self) -> Set[str]:
+        """Get currently selected fragment IDs (group or single)"""
+        if self.group_selected_fragments:
+            return self.group_selected_fragments
+        elif self.selected_fragment_id:
+            return {self.selected_fragment_id}
+        return set()
+        
+    def force_immediate_update(self):
+        """Force immediate UI update without delay"""
+        self.update()
+        self.repaint()  # Force immediate repaint
+        
+    def force_update_display(self):
+        """Force update display - called by timer"""
+        self.force_immediate_update()
             
     def schedule_render(self, fast: bool = False):
         """Schedule fragment rendering"""
@@ -356,6 +395,10 @@ class CanvasWidget(QWidget):
         # Draw selection outlines
         self.draw_selection_outlines(painter)
         
+        # Draw selection tool
+        if self.selection_tool.is_active:
+            self.selection_tool.draw_selection(painter, self.zoom)
+        
         painter.restore()
         
     def get_visible_world_rect(self) -> QRect:
@@ -404,7 +447,12 @@ class CanvasWidget(QWidget):
             if not fragment.visible:
                 continue
                 
-            if fragment.selected or fragment.id == self.selected_fragment_id:
+            # Check if fragment is selected (single or group)
+            is_selected = (fragment.selected or 
+                          fragment.id == self.selected_fragment_id or
+                          fragment.id in self.group_selected_fragments)
+                          
+            if is_selected:
                 bbox = fragment.get_bounding_box()
                 rect = QRect(int(bbox[0]), int(bbox[1]), int(bbox[2]), int(bbox[3]))
                 painter.drawRect(rect)
@@ -413,20 +461,43 @@ class CanvasWidget(QWidget):
         """Handle mouse press events"""
         if event.button() == Qt.MouseButton.LeftButton:
             world_pos = self.screen_to_world(event.pos())
-            clicked_fragment = self.get_fragment_at_position(world_pos.x(), world_pos.y())
             
-            if clicked_fragment:
-                # Select and start dragging fragment
-                self.fragment_selected.emit(clicked_fragment.id)
-                self.is_dragging_fragment = True
-                self.dragged_fragment_id = clicked_fragment.id
-                self.drag_offset = QPoint(
-                    int(world_pos.x() - clicked_fragment.x),
-                    int(world_pos.y() - clicked_fragment.y)
-                )
+            if self.selection_tool.is_active:
+                # Start rectangle selection
+                self.selection_tool.start_selection(world_pos)
             else:
-                # Start panning
-                self.is_panning = True
+                clicked_fragment = self.get_fragment_at_position(world_pos.x(), world_pos.y())
+                
+                if clicked_fragment:
+                    # Check if clicking on a group-selected fragment
+                    if clicked_fragment.id in self.group_selected_fragments:
+                        # Start group dragging
+                        self.is_group_dragging = True
+                        self.group_drag_start = world_pos
+                        self.group_drag_offsets.clear()
+                        
+                        # Calculate offsets for all selected fragments
+                        for frag_id in self.group_selected_fragments:
+                            frag = self.get_fragment_by_id(frag_id)
+                            if frag:
+                                self.group_drag_offsets[frag_id] = QPoint(
+                                    int(world_pos.x() - frag.x),
+                                    int(world_pos.y() - frag.y)
+                                )
+                    else:
+                        # Select and start dragging single fragment
+                        self.fragment_selected.emit(clicked_fragment.id)
+                        self.group_selected_fragments.clear()  # Clear group selection
+                        self.is_dragging_fragment = True
+                        self.dragged_fragment_id = clicked_fragment.id
+                        self.drag_offset = QPoint(
+                            int(world_pos.x() - clicked_fragment.x),
+                            int(world_pos.y() - clicked_fragment.y)
+                        )
+                else:
+                    # Clear selections and start panning
+                    self.group_selected_fragments.clear()
+                    self.is_panning = True
                 
         elif event.button() == Qt.MouseButton.MiddleButton:
             # Always pan with middle button
@@ -436,14 +507,33 @@ class CanvasWidget(QWidget):
         
     def mouseMoveEvent(self, event: QMouseEvent):
         """Handle mouse move events"""
-        if self.is_dragging_fragment and self.dragged_fragment_id:
+        if self.selection_tool.is_active and self.selection_tool.is_selecting:
+            # Update rectangle selection
+            world_pos = self.screen_to_world(event.pos())
+            self.selection_tool.update_selection(world_pos)
+            self.force_immediate_update()
+            
+        elif self.is_group_dragging:
+            # Move group of fragments
+            world_pos = self.screen_to_world(event.pos())
+            
+            for frag_id in self.group_selected_fragments:
+                if frag_id in self.group_drag_offsets:
+                    offset = self.group_drag_offsets[frag_id]
+                    new_x = world_pos.x() - offset.x()
+                    new_y = world_pos.y() - offset.y()
+                    self.fragment_moved.emit(frag_id, new_x, new_y)
+                    
+            self.force_immediate_update()
+            
+        elif self.is_dragging_fragment and self.dragged_fragment_id:
             # Move fragment
             world_pos = self.screen_to_world(event.pos())
             new_x = world_pos.x() - self.drag_offset.x()
             new_y = world_pos.y() - self.drag_offset.y()
             
             self.fragment_moved.emit(self.dragged_fragment_id, new_x, new_y)
-            self.update()  # Just update display, don't re-render
+            self.force_immediate_update()
             
         elif self.is_panning:
             # Pan viewport
@@ -451,15 +541,29 @@ class CanvasWidget(QWidget):
             self.pan_x += delta.x() / self.zoom
             self.pan_y += delta.y() / self.zoom
             self.viewport_changed.emit(self.zoom, self.pan_x, self.pan_y)
-            self.update()
+            self.force_immediate_update()
             
         self.last_mouse_pos = event.pos()
         
     def mouseReleaseEvent(self, event: QMouseEvent):
         """Handle mouse release events"""
+        if self.selection_tool.is_active and self.selection_tool.is_selecting:
+            # Finish rectangle selection
+            selected_ids = self.selection_tool.finish_selection(self.fragments)
+            self.group_selected_fragments = selected_ids
+            
+            # Auto-zoom to fit selected fragments if any
+            if selected_ids:
+                self.zoom_to_selected_fragments()
+            
+            self.force_immediate_update()
+            return
+            
         self.is_panning = False
         self.is_dragging_fragment = False
+        self.is_group_dragging = False
         self.dragged_fragment_id = None
+        self.group_drag_offsets.clear()
         
     def wheelEvent(self, event: QWheelEvent):
         """Handle mouse wheel events for zooming"""
@@ -479,14 +583,14 @@ class CanvasWidget(QWidget):
             self.pan_y += float(mouse_world_before.y() - mouse_world_after.y())
             
             # Just update the display - don't re-render fragments for zoom changes
-            self.update()
+            self.force_immediate_update()
             
             self.viewport_changed.emit(self.zoom, self.pan_x, self.pan_y)
             
     def resizeEvent(self, event: QResizeEvent):
         """Handle resize events"""
         super().resizeEvent(event)
-        self.update()
+        self.force_immediate_update()
         
     def screen_to_world(self, screen_pos: QPoint) -> QPoint:
         """Convert screen coordinates to world coordinates"""
@@ -547,7 +651,52 @@ class CanvasWidget(QWidget):
         self.pan_y = (widget_height / 2 / self.zoom) - content_center_y
         
         self.viewport_changed.emit(self.zoom, self.pan_x, self.pan_y)
-        self.update()
+        self.force_immediate_update()
+        
+    def zoom_to_selected_fragments(self):
+        """Zoom to fit selected fragments"""
+        if not self.group_selected_fragments:
+            return
+            
+        selected_fragments = [f for f in self.fragments 
+                            if f.id in self.group_selected_fragments and f.visible]
+        if not selected_fragments:
+            return
+            
+        # Calculate bounds of selected fragments
+        min_x = min_y = float('inf')
+        max_x = max_y = float('-inf')
+        
+        for fragment in selected_fragments:
+            bbox = fragment.get_bounding_box()
+            min_x = min(min_x, bbox[0])
+            min_y = min(min_y, bbox[1])
+            max_x = max(max_x, bbox[0] + bbox[2])
+            max_y = max(max_y, bbox[1] + bbox[3])
+            
+        content_width = max_x - min_x
+        content_height = max_y - min_y
+        
+        if content_width <= 0 or content_height <= 0:
+            return
+            
+        # Calculate zoom to fit with padding
+        widget_width = self.width()
+        widget_height = self.height()
+        
+        zoom_x = widget_width / content_width
+        zoom_y = widget_height / content_height
+        self.zoom = min(zoom_x, zoom_y) * 0.9  # 90% to add padding
+        
+        # Center the content
+        content_center_x = (min_x + max_x) / 2
+        content_center_y = (min_y + max_y) / 2
+        
+        self.pan_x = (widget_width / 2 / self.zoom) - content_center_x
+        self.pan_y = (widget_height / 2 / self.zoom) - content_center_y
+        
+        self.viewport_changed.emit(self.zoom, self.pan_x, self.pan_y)
+        self.force_immediate_update()
         
     def zoom_to_100(self):
         """Reset zoom to 100%"""
@@ -556,7 +705,7 @@ class CanvasWidget(QWidget):
         self.pan_y = 0.0
         
         self.viewport_changed.emit(self.zoom, self.pan_x, self.pan_y)
-        self.update()
+        self.force_immediate_update()
         
     def invalidate_fragment(self, fragment_id: str):
         """Mark a fragment as needing re-rendering"""
@@ -575,4 +724,58 @@ class CanvasWidget(QWidget):
     def force_refresh(self):
         """Force refresh of all fragments"""
         self.clear_cache()
-        self.update()
+        self.force_immediate_update()
+        
+    def apply_group_transform(self, transform_type: str, value=None):
+        """Apply transformation to all selected fragments"""
+        selected_ids = self.get_selected_fragments()
+        if not selected_ids:
+            return
+            
+        # Calculate center of selected fragments for rotation
+        if transform_type in ['rotate_cw', 'rotate_ccw', 'rotate_angle']:
+            center_x = center_y = 0
+            count = 0
+            
+            for frag_id in selected_ids:
+                fragment = self.get_fragment_by_id(frag_id)
+                if fragment:
+                    bbox = fragment.get_bounding_box()
+                    center_x += bbox[0] + bbox[2] / 2
+                    center_y += bbox[1] + bbox[3] / 2
+                    count += 1
+                    
+            if count > 0:
+                center_x /= count
+                center_y /= count
+                
+                # Apply rotation around center
+                angle = 90 if transform_type == 'rotate_cw' else -90 if transform_type == 'rotate_ccw' else value
+                if angle:
+                    import math
+                    angle_rad = math.radians(angle)
+                    cos_a = math.cos(angle_rad)
+                    sin_a = math.sin(angle_rad)
+                    
+                    for frag_id in selected_ids:
+                        fragment = self.get_fragment_by_id(frag_id)
+                        if fragment:
+                            # Rotate fragment around group center
+                            rel_x = fragment.x - center_x
+                            rel_y = fragment.y - center_y
+                            
+                            new_rel_x = rel_x * cos_a - rel_y * sin_a
+                            new_rel_y = rel_x * sin_a + rel_y * cos_a
+                            
+                            new_x = center_x + new_rel_x
+                            new_y = center_y + new_rel_y
+                            
+                            self.fragment_moved.emit(frag_id, new_x, new_y)
+                            
+        # Emit transform for individual fragments
+        for frag_id in selected_ids:
+            if transform_type not in ['rotate_cw', 'rotate_ccw', 'rotate_angle']:
+                # For non-rotation transforms, apply to each fragment individually
+                pass  # Will be handled by the main window
+                
+        self.force_immediate_update()

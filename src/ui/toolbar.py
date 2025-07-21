@@ -5,7 +5,7 @@ Main toolbar widget
 from PyQt6.QtWidgets import (QWidget, QHBoxLayout, QPushButton, QLabel, 
                             QFrame, QSpacerItem, QSizePolicy)
 from PyQt6.QtCore import Qt, pyqtSignal
-from PyQt6.QtGui import QIcon
+from PyQt6.QtGui import QIcon, QAction
 
 class ToolbarWidget(QWidget):
     """Main application toolbar"""
@@ -15,9 +15,12 @@ class ToolbarWidget(QWidget):
     stitch_requested = pyqtSignal()
     reset_requested = pyqtSignal()
     delete_requested = pyqtSignal()
+    selection_tool_toggled = pyqtSignal(bool)  # active state
+    group_transform_requested = pyqtSignal(str, object)  # transform_type, value
     
     def __init__(self):
         super().__init__()
+        self.selection_tool_active = False
         self.setup_ui()
         
     def setup_ui(self):
@@ -32,11 +35,30 @@ class ToolbarWidget(QWidget):
         self.load_btn.clicked.connect(self.load_images_requested)
         layout.addWidget(self.load_btn)
         
+        # Selection tool button
+        self.selection_btn = QPushButton("🔲 Select")
+        self.selection_btn.setToolTip("Rectangle selection tool for multiple fragments")
+        self.selection_btn.setCheckable(True)
+        self.selection_btn.clicked.connect(self.toggle_selection_tool)
+        layout.addWidget(self.selection_btn)
+        
         # Separator
         separator1 = QFrame()
-        separator1.setFrameShape(QFrame.Shape.VLine) # For a vertical line
-        # Or use: separator1.setFrameShape(QFrame.Shape.HLine) for a horizontal line
+        separator1.setFrameShape(QFrame.Shape.VLine)
         layout.addWidget(separator1)
+        
+        # Group transform buttons (initially hidden)
+        self.group_rotate_cw_btn = QPushButton("↻ Group")
+        self.group_rotate_cw_btn.setToolTip("Rotate selected group clockwise")
+        self.group_rotate_cw_btn.clicked.connect(lambda: self.group_transform_requested.emit('rotate_cw', None))
+        self.group_rotate_cw_btn.setVisible(False)
+        layout.addWidget(self.group_rotate_cw_btn)
+        
+        self.group_rotate_ccw_btn = QPushButton("↺ Group")
+        self.group_rotate_ccw_btn.setToolTip("Rotate selected group counter-clockwise")
+        self.group_rotate_ccw_btn.clicked.connect(lambda: self.group_transform_requested.emit('rotate_ccw', None))
+        self.group_rotate_ccw_btn.setVisible(False)
+        layout.addWidget(self.group_rotate_ccw_btn)
         
         # Export button
         self.export_btn = QPushButton("💾 Export")
@@ -47,8 +69,8 @@ class ToolbarWidget(QWidget):
         
         # Separator
         separator2 = QFrame()  # Create a QFrame instead of QSeparator
-        separator2.setFrameShape(QFrame.Shape.VLine) # Set its shape to be a Vertical Line
-        separator2.setFrameShadow(QFrame.Shadow.Sunken) # Optional: Adds a visual shadow
+        separator2.setFrameShape(QFrame.Shape.VLine)
+        separator2.setFrameShadow(QFrame.Shadow.Sunken)
         layout.addWidget(separator2)
         
         # Stitch button
@@ -81,16 +103,37 @@ class ToolbarWidget(QWidget):
         self.status_label.setStyleSheet("color: #4a90e2; font-weight: bold;")
         layout.addWidget(self.status_label)
         
+    def toggle_selection_tool(self):
+        """Toggle selection tool state"""
+        self.selection_tool_active = not self.selection_tool_active
+        self.selection_btn.setChecked(self.selection_tool_active)
+        
+        # Show/hide group transform buttons
+        self.group_rotate_cw_btn.setVisible(self.selection_tool_active)
+        self.group_rotate_ccw_btn.setVisible(self.selection_tool_active)
+        
+        # Update button style
+        if self.selection_tool_active:
+            self.selection_btn.setStyleSheet("QPushButton { background-color: #4a90e2; }")
+            self.status_label.setText("Selection tool active - drag to select multiple fragments")
+        else:
+            self.selection_btn.setStyleSheet("")
+            self.status_label.setText("Ready")
+            
+        self.selection_tool_toggled.emit(self.selection_tool_active)
+        
     def set_fragment_count(self, count: int):
         """Update the fragment count display"""
         if count == 0:
-            self.status_label.setText("Ready")
+            if not self.selection_tool_active:
+                self.status_label.setText("Ready")
             self.export_btn.setEnabled(False)
             self.stitch_btn.setEnabled(False)
             self.reset_btn.setEnabled(False)
             self.delete_btn.setEnabled(False)
         else:
-            self.status_label.setText(f"{count} fragment{'s' if count != 1 else ''} loaded")
+            if not self.selection_tool_active:
+                self.status_label.setText(f"{count} fragment{'s' if count != 1 else ''} loaded")
             self.export_btn.setEnabled(True)
             self.stitch_btn.setEnabled(count >= 2)
             self.reset_btn.setEnabled(True)
@@ -98,4 +141,5 @@ class ToolbarWidget(QWidget):
             
     def set_status(self, status: str):
         """Set the status message"""
-        self.status_label.setText(status)
+        if not self.selection_tool_active:
+            self.status_label.setText(status)
